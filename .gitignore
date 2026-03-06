@@ -1,0 +1,10 @@
+# MicroPython compiled files
+*.mpy
+__pycache__/
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.cursor/
