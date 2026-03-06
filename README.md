@@ -41,8 +41,15 @@ VL53L5CX-V2/
 │   └── main.py                   Production: 20Hz JSON output over serial
 └── docs/
     ├── test_plan.md              Full test plan with wiring diagram
+    ├── mounting_geometry.md      Top-down diagram, cosine correction, pre-mount checklist
     └── phase3_placement_test.md  45° placement guide and pass criteria
 ```
+
+---
+
+## Mounting Geometry
+
+See **[docs/mounting_geometry.md](docs/mounting_geometry.md)** for the top-down placement diagram, cosine correction math, and pre-mount checklist (rider depth, beam convergence, pull-up resistors).
 
 ---
 
