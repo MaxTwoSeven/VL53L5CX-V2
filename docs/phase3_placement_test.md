@@ -9,7 +9,7 @@ Place both sensors on the test board with the following geometry:
            45° ↘                    45° ↙
                ↘                  ↙
                 ↘                ↙
-         ←——————  500mm  ————————→
+         ←——————  300mm  ————————→
                       ↓
                   [Rider]
 ```
@@ -17,7 +17,7 @@ Place both sensors on the test board with the following geometry:
 - Sensor A = **chest** — positioned to read lean left/right torso position
 - Sensor B = **lean** — positioned to read forward/back body lean
 - Both angled **45° inward** toward the seated rider
-- **500mm separation** between sensors (center to center)
+- **300mm separation** between sensors (center to center)
 
 ---
 
@@ -86,9 +86,9 @@ Verify each movement produces the expected directional change.
 
 To verify the correction is working correctly after flashing `main.py`:
 
-1. Place a flat board exactly **500mm** (perpendicular) in front of a sensor
-2. The sensor is mounted at 45°, so slant distance = `500 / cos(45°)` = **707mm**
-3. `main.py` should output `"mm": 500` (after correction)
+1. Place a flat board exactly **300mm** (perpendicular) in front of a sensor
+2. The sensor is mounted at 45°, so slant distance = `300 / cos(45°)` = **424mm**
+3. `main.py` should output `"mm": 300` (after correction)
 4. Confirm this matches the measured physical distance
 
 ---

@@ -101,7 +101,7 @@ Pico GP3  (Pin  5) ──────── LPn [Sensor B]   lean sensor
 |------|-------|
 | Raspberry Pi Pico | Any revision, stock MicroPython firmware |
 | VL53L5CX V2 breakout ×2 | SparkFun or Pimoroni recommended |
-| Sensor spacing | 500mm center-to-center |
+| Sensor spacing | 300mm center-to-center |
 | Mount angle | 45° inward toward rider |
 
 ---

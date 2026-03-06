@@ -23,7 +23,7 @@ Pico GP3  (Pin 5)  ──────── LPn [Sensor B]   ← individual enab
 
 **Note:** Most breakout boards (SparkFun, Pimoroni) include onboard I2C pull-up resistors. If both boards have pull-ups active simultaneously, cut the jumper on one board so the combined bus pull-up stays near 4.7kΩ.
 
-**Angle & spacing:** Place sensors 500mm apart, both angled 45° toward the user. The sensor reports slant distance; apply `true_distance = reported_mm × cos(45°) × 0.707` in firmware if you need perpendicular projection.
+**Angle & spacing:** Place sensors 300mm apart (center-to-center), both angled 45° toward the user. The sensor reports slant distance; apply `true_distance = reported_mm × cos(45°) × 0.707` in firmware if you need perpendicular projection.
 
 ---
 
@@ -117,7 +117,7 @@ mpremote cp vl53l5cx/vl_fw_config.bin :lib/vl53l5cx/vl_fw_config.bin
 
 ### Phase 3 — 45° Placement Test
 
-- Mount both sensors 500mm apart, angled 45° toward seated rider position
+- Mount both sensors 300mm apart (center-to-center), angled 45° toward seated rider position
 - See `docs/phase3_placement_test.md` for full pass criteria and cosine correction validation
 
 ### Phase 4 — Serial JSON Output
