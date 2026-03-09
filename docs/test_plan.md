@@ -83,19 +83,21 @@ This must run on every boot (addresses are not stored on the sensor).
 
 ## Software Library
 
-**Use:** [`mp-extras/vl53l5cx`](https://github.com/mp-extras/vl53l5cx) — pure MicroPython port of ST's ULD driver, works on stock Pico MicroPython firmware.
+**Use:** [`stm32duino/VL53L5CX`](https://github.com/stm32duino/VL53L5CX) — official ST Arduino library, compatible with the Arduino-Pico core.
 
-**Install via mpremote:**
+**Install via Arduino IDE Library Manager:**
 
-```bash
-mpremote mkdir :lib/vl53l5cx
-mpremote cp vl53l5cx/__init__.py :lib/vl53l5cx/__init__.py
-mpremote cp vl53l5cx/mp.py :lib/vl53l5cx/mp.py
-mpremote cp vl53l5cx/_config_file.py :lib/vl53l5cx/_config_file.py
-mpremote cp vl53l5cx/vl_fw_config.bin :lib/vl53l5cx/vl_fw_config.bin
+Search `VL53L5CX` → install **"VL53L5CX by STMicroelectronics"**
+
+**Arduino-Pico core (if not already installed):**
+
+In Arduino IDE → Preferences → Additional boards manager URLs, add:
 ```
+https://github.com/earlephilhower/arduino-pico/releases/download/global/package_rp2040_index.json
+```
+Then: Boards Manager → search `Raspberry Pi Pico/RP2040` → Install
 
-**Note:** The sensor uploads ~86KB of firmware over I2C at every boot. Set `freq=1_000_000` to keep startup under 2 seconds.
+**Note:** The sensor uploads ~86KB of firmware over I2C at every boot. `Wire.setClock(1000000)` (1 MHz) keeps startup under 2 seconds.
 
 ---
 
@@ -103,16 +105,18 @@ mpremote cp vl53l5cx/vl_fw_config.bin :lib/vl53l5cx/vl_fw_config.bin
 
 ### Phase 1 — Single Sensor Verification
 
-- Wire only Sensor A (LPn wired to GP2 and held HIGH in code)
-- Flash `firmware/phase1_single_sensor.py`
+- Wire only Sensor A (LPn wired to GP2, driven HIGH in code)
+- Open `firmware/phase1_single_sensor/phase1_single_sensor.ino` in Arduino IDE
+- Select board: **Raspberry Pi Pico**, correct COM port
+- Upload and open Serial Monitor at **115200 baud**
 - Confirm: sensor boots, ranges return valid mm values in the 100–4000mm window
 - Move hand toward/away from sensor, confirm values track in real time
 
 ### Phase 2 — Dual Sensor Verification
 
 - Wire Sensor B (LPn → GP3)
-- Flash `firmware/phase2_dual_sensor.py`
-- Confirm both sensors appear: `i2c.scan()` → `[0x29, 0x2A]`
+- Open `firmware/phase2_dual_sensor/phase2_dual_sensor.ino`, upload
+- Confirm both sensors appear on the bus (printed to Serial Monitor)
 - Read from each sensor independently, verify no cross-talk or address collision
 
 ### Phase 3 — 45° Placement Test
@@ -122,7 +126,7 @@ mpremote cp vl53l5cx/vl_fw_config.bin :lib/vl53l5cx/vl_fw_config.bin
 
 ### Phase 4 — Serial JSON Output
 
-Deploy `firmware/main.py` to the Pico. It emits newline-delimited JSON at 20Hz:
+Open `firmware/main/main.ino`, upload to the Pico. It emits newline-delimited JSON at 20Hz:
 
 ```json
 {"tof":[{"id":"tof-chest","mm":215,"min":100,"max":700},{"id":"tof-lean","mm":310,"min":100,"max":700}]}

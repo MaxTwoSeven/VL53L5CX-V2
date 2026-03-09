@@ -1,6 +1,9 @@
-# MicroPython compiled files
-*.mpy
-__pycache__/
+# Arduino build output
+build/
+*.elf
+*.bin
+*.hex
+*.map
 
 # macOS
 .DS_Store

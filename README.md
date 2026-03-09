@@ -1,33 +1,30 @@
 # VL53L5CX-V2
 
-MicroPython firmware and test documentation for dual ST VL53L5CX V2 Time-of-Flight sensors on a Raspberry Pi Pico. Designed for rider position sensing — outputs serial JSON that feeds directly into Mission Control (`mx-controller`).
+Arduino C++ firmware and test documentation for dual ST VL53L5CX V2 Time-of-Flight sensors on a Raspberry Pi Pico (Arduino-Pico core). Designed for rider position sensing — outputs serial JSON that feeds directly into Mission Control (`mx-controller`).
 
 ---
 
 ## Quick Start
 
-```bash
-# 1. Install MicroPython on the Pico
-#    Hold BOOTSEL, plug in USB, drag .uf2 to RPI-RP2 drive
-#    https://micropython.org/download/rp2-pico/
+**1. Install the Arduino-Pico core**
 
-# 2. Install mpremote
-pip3 install mpremote
-
-# 3. Install the VL53L5CX MicroPython library
-#    Clone https://github.com/mp-extras/vl53l5cx first, then:
-mpremote mkdir :lib/vl53l5cx
-mpremote cp vl53l5cx/__init__.py  :lib/vl53l5cx/__init__.py
-mpremote cp vl53l5cx/mp.py        :lib/vl53l5cx/mp.py
-mpremote cp vl53l5cx/_config_file.py :lib/vl53l5cx/_config_file.py
-mpremote cp vl53l5cx/vl_fw_config.bin :lib/vl53l5cx/vl_fw_config.bin
-
-# 4. Run Phase 1 test (single sensor)
-mpremote run firmware/phase1_single_sensor.py
-
-# 5. Deploy production firmware
-mpremote cp firmware/main.py :main.py
+In Arduino IDE → Preferences → Additional boards manager URLs, add:
 ```
+https://github.com/earlephilhower/arduino-pico/releases/download/global/package_rp2040_index.json
+```
+Then: Boards Manager → search `Raspberry Pi Pico/RP2040` → Install
+
+**2. Install the VL53L5CX library**
+
+Arduino IDE → Library Manager → search `VL53L5CX` → install **"VL53L5CX by STMicroelectronics"**
+
+**3. Select your board**
+
+Tools → Board → Raspberry Pi RP2040 Boards → **Raspberry Pi Pico**
+
+**4. Flash and run Phase 1**
+
+Open `firmware/phase1_single_sensor/phase1_single_sensor.ino`, upload, open Serial Monitor at 115200 baud.
 
 ---
 
@@ -36,13 +33,16 @@ mpremote cp firmware/main.py :main.py
 ```
 VL53L5CX-V2/
 ├── firmware/
-│   ├── phase1_single_sensor.py   Phase 1: single sensor boot + ranging test
-│   ├── phase2_dual_sensor.py     Phase 2: dual sensor address init + verify
-│   └── main.py                   Production: 20Hz JSON output over serial
+│   ├── phase1_single_sensor/
+│   │   └── phase1_single_sensor.ino   Phase 1: single sensor boot + ranging test
+│   ├── phase2_dual_sensor/
+│   │   └── phase2_dual_sensor.ino     Phase 2: dual sensor address init + verify
+│   └── main/
+│       └── main.ino                   Production: 20Hz JSON output over serial
 └── docs/
-    ├── test_plan.md              Full test plan with wiring diagram
-    ├── mounting_geometry.md      Top-down diagram, cosine correction, pre-mount checklist
-    └── phase3_placement_test.md  45° placement guide and pass criteria
+    ├── test_plan.md                   Full test plan with wiring diagram
+    ├── mounting_geometry.md           Top-down diagram, cosine correction, pre-mount checklist
+    └── phase3_placement_test.md       45° placement guide and pass criteria
 ```
 
 ---
@@ -78,7 +78,7 @@ Pico GP3  (Pin  5) ──────── LPn [Sensor B]   lean sensor
 
 ## JSON Output Format
 
-`main.py` emits one line per frame at ~20Hz:
+`main.ino` emits one line per frame at ~20Hz:
 
 ```json
 {"tof":[{"id":"tof-chest","mm":354,"min":100,"max":700},
@@ -88,6 +88,7 @@ Pico GP3  (Pin  5) ──────── LPn [Sensor B]   lean sensor
 - `mm` values are **cosine-corrected** for the 45° mount angle
 - `min`/`max` define the Mission Control UI bar range
 - IDs `tof-chest` and `tof-lean` map directly to Mission Control's `inputStore.ts`
+- Lines prefixed with `#` are diagnostic logs — Mission Control ignores them
 
 ---
 
@@ -95,10 +96,10 @@ Pico GP3  (Pin  5) ──────── LPn [Sensor B]   lean sensor
 
 | Phase | Description | Status |
 |-------|-------------|--------|
-| 1 | Single sensor boot + ranging | ✅ Complete |
-| 2 | Dual sensor address init | ✅ Complete |
-| 3 | 45° placement + cosine correction | ✅ Complete |
-| 4 | Serial JSON → Mission Control | ✅ Complete |
+| 1 | Single sensor boot + ranging | ⬜ Pending |
+| 2 | Dual sensor address init | ⬜ Pending |
+| 3 | 45° placement + cosine correction | ⬜ Pending |
+| 4 | Serial JSON → Mission Control | ⬜ Pending |
 
 ---
 
@@ -106,7 +107,7 @@ Pico GP3  (Pin  5) ──────── LPn [Sensor B]   lean sensor
 
 | Part | Notes |
 |------|-------|
-| Raspberry Pi Pico | Any revision, stock MicroPython firmware |
+| Raspberry Pi Pico | Any revision, Arduino-Pico core |
 | VL53L5CX V2 breakout ×2 | SparkFun or Pimoroni recommended |
 | Sensor spacing | 300mm center-to-center |
 | Mount angle | 45° inward toward rider |
@@ -115,6 +116,5 @@ Pico GP3  (Pin  5) ──────── LPn [Sensor B]   lean sensor
 
 ## Dependencies
 
-- [MicroPython for Pico](https://micropython.org/download/rp2-pico/)
-- [mp-extras/vl53l5cx](https://github.com/mp-extras/vl53l5cx) — pure MicroPython ULD driver
-- [mpremote](https://pypi.org/project/mpremote/) — for flashing scripts to the Pico
+- [Arduino-Pico core](https://github.com/earlephilhower/arduino-pico) — RP2040 Arduino support by Earle Philhower
+- [stm32duino/VL53L5CX](https://github.com/stm32duino/VL53L5CX) — official ST Arduino library
