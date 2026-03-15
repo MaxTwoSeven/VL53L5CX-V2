@@ -280,6 +280,12 @@ void setup() {
 
   // No ISRs needed — INT pins are read directly in the loop
 
+  // Anchor watchdog clock to NOW so the 3 s stale window starts from when
+  // ranging begins, not from millis()=0 at declaration (which would cause
+  // the watchdog to fire immediately on the first loop pass).
+  lastReadA_ms = millis();
+  lastReadB_ms = millis();
+
   digitalWrite(LED_BUILTIN, HIGH);
   Serial.println("  Both sensors ranging (INT-driven).\n"); Serial.flush();
 }
