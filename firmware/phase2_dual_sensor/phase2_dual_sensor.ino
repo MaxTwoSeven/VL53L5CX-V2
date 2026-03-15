@@ -1,10 +1,10 @@
 /**
  * Phase 2 — Dual VL53L5CX Sensor Verification
  * =============================================
- * Target: Raspberry Pi Pico (Arduino-Pico core)
- * Library: stm32duino/VL53L5CX
+ * Target: Raspberry Pi Pico (Arduino-Pico core — earlephilhower)
+ * Library: SparkFun VL53L5CX Library
  *
- * Wiring (adds Sensor B to Phase 1 setup):
+ * Wiring:
  *   Pico 3V3  (Pin 36) → VIN  [Sensor A]  [Sensor B]
  *   Pico GND  (Pin 38) → GND  [Sensor A]  [Sensor B]
  *   Pico GP4  (Pin  6) → SDA  [Sensor A]  [Sensor B]  (shared bus)
@@ -12,18 +12,23 @@
  *   Pico GP2  (Pin  4) → LPn  [Sensor A]
  *   Pico GP3  (Pin  5) → LPn  [Sensor B]
  *
- * Pull-up note: if both breakout boards have onboard pull-up resistors,
- * cut the jumper on one board to keep combined pull-up ~4.7kΩ on SDA/SCL.
+ * Pull-up note: most breakout boards have onboard pull-ups. With two boards
+ * on the same bus the combined resistance may drop too low (~2.35kΩ). If
+ * readings are erratic, cut the pull-up jumper on one board.
  *
- * Address init result:
- *   Sensor A → 0x2A  (chest, reassigned at boot)
+ * Address assignment after boot:
+ *   Sensor A → 0x2A  (chest)
  *   Sensor B → 0x29  (lean, default)
  *
- * Expected output: interleaved distance readings from both sensors.
+ * LED codes:
+ *   3 short blinks                = setup() started
+ *   1 long blink after each step  = sensor confirmed
+ *   fast blink forever            = sensor not found on I2C
+ *   solid ON                      = both sensors ranging
  */
 
 #include <Wire.h>
-#include <vl53l5cx_api.h>
+#include <SparkFun_VL53L5CX_Library.h>
 
 #define LPN_A_PIN    2
 #define LPN_B_PIN    3
@@ -32,21 +37,33 @@
 #define CENTER_ZONE  5
 #define VALID_STATUS 5
 
-#define ADDR_DEFAULT  0x29
-#define ADDR_SENSOR_A 0x2A
-#define ADDR_SENSOR_B 0x29
+SparkFun_VL53L5CX sensor_a;
+SparkFun_VL53L5CX sensor_b;
+VL53L5CX_ResultsData results_a;
+VL53L5CX_ResultsData results_b;
 
-VL53L5CX_Configuration sensor_a;
-VL53L5CX_Configuration sensor_b;
-VL53L5CX_ResultsData   results_a;
-VL53L5CX_ResultsData   results_b;
+void blink(int n, int onMs, int offMs) {
+  for (int i = 0; i < n; i++) {
+    digitalWrite(LED_BUILTIN, HIGH); delay(onMs);
+    digitalWrite(LED_BUILTIN, LOW);  delay(offMs);
+  }
+}
+
+void panicFast(const char* msg) {
+  Serial.println(msg); Serial.flush();
+  while (true) blink(1, 80, 80);
+}
 
 void setup() {
+  pinMode(LED_BUILTIN, OUTPUT);
+  blink(3, 100, 100);  // alive
+
   Serial.begin(115200);
-  while (!Serial) delay(10);
+  delay(3000);  // allow Serial Monitor to connect; no while(!Serial) — causes DTR reset loop
 
   Serial.println("Phase 2 — Dual Sensor Verification");
   Serial.println("------------------------------------");
+  Serial.flush();
 
   pinMode(LPN_A_PIN, OUTPUT);
   pinMode(LPN_B_PIN, OUTPUT);
@@ -54,82 +71,93 @@ void setup() {
   Wire.setSDA(SDA_PIN);
   Wire.setSCL(SCL_PIN);
   Wire.begin();
-  Wire.setClock(1000000);
+  Wire.setClock(400000);
+  Serial.println("  I2C started on GP4/GP5 @ 400kHz");
+  Serial.flush();
 
-  // ── Address initialization sequence ────────────────────────────────────────
-
-  // Step 1: Disable both sensors
-  Serial.println("Disabling both sensors...");
+  // ── Step 1: both sensors off ──────────────────────────────────────────────
+  Serial.println("  [1] Disabling both sensors...");
+  Serial.flush();
   digitalWrite(LPN_A_PIN, LOW);
   digitalWrite(LPN_B_PIN, LOW);
   delay(10);
 
-  // Step 2: Boot Sensor A at default 0x29, reassign to 0x2A
-  Serial.println("Booting Sensor A...");
+  // ── Step 2: boot Sensor A at 0x29, reassign to 0x2A ──────────────────────
+  Serial.println("  [2] Booting Sensor A (firmware upload ~2s)...");
+  Serial.flush();
   digitalWrite(LPN_A_PIN, HIGH);
   delay(100);
 
-  sensor_a.platform.address = ADDR_DEFAULT;
-  if (vl53l5cx_init(&sensor_a) != VL53L5CX_STATUS_OK) {
-    Serial.println("ERROR: Sensor A not found.");
-    while (true) delay(1000);
+  if (!sensor_a.begin(0x29, Wire)) {
+    panicFast("  ERROR: Sensor A not found at 0x29. Check LPn_A wiring (GP2, pin 4).");
   }
-  vl53l5cx_set_i2c_address(&sensor_a, ADDR_SENSOR_A << 1);
-  Serial.print("  Sensor A reassigned to 0x");
-  Serial.println(ADDR_SENSOR_A, HEX);
-  delay(100);
+  sensor_a.setAddress(0x2A);
+  blink(1, 400, 200);  // A confirmed
+  Serial.println("  [2] Sensor A → 0x2A  OK");
+  Serial.flush();
+  delay(50);
 
-  // Step 3: Boot Sensor B at default 0x29
-  Serial.println("Booting Sensor B...");
+  // ── Step 3: boot Sensor B at default 0x29 ────────────────────────────────
+  Serial.println("  [3] Booting Sensor B (firmware upload ~2s)...");
+  Serial.flush();
   digitalWrite(LPN_B_PIN, HIGH);
   delay(100);
 
-  sensor_b.platform.address = ADDR_DEFAULT;
-  if (vl53l5cx_init(&sensor_b) != VL53L5CX_STATUS_OK) {
-    Serial.println("ERROR: Sensor B not found.");
-    while (true) delay(1000);
+  if (!sensor_b.begin(0x29, Wire)) {
+    panicFast("  ERROR: Sensor B not found at 0x29. Check LPn_B wiring (GP3, pin 5).");
   }
-  Serial.print("  Sensor B at 0x");
-  Serial.println(ADDR_SENSOR_B, HEX);
-  delay(100);
+  blink(1, 400, 200);  // B confirmed
+  Serial.println("  [3] Sensor B → 0x29  OK");
+  Serial.flush();
+  delay(50);
 
-  Serial.println("Both sensors confirmed on bus.");
+  // ── Step 4: configure and start ranging ───────────────────────────────────
+  sensor_a.setResolution(4 * 4);
+  sensor_b.setResolution(4 * 4);
+  sensor_a.setRangingFrequency(60);
+  sensor_b.setRangingFrequency(60);
+  sensor_a.startRanging();
+  sensor_b.startRanging();
 
-  // ── Configure and start ranging ─────────────────────────────────────────────
-  vl53l5cx_set_resolution(&sensor_a, VL53L5CX_RESOLUTION_4X4);
-  vl53l5cx_set_resolution(&sensor_b, VL53L5CX_RESOLUTION_4X4);
-  vl53l5cx_start_ranging(&sensor_a);
-  vl53l5cx_start_ranging(&sensor_b);
+  digitalWrite(LED_BUILTIN, HIGH);  // solid = both sensors ranging
 
-  Serial.println("Reading from both sensors:");
-  Serial.println("--------------------------------------------------");
+  Serial.println("  Both sensors ranging.");
+  Serial.println();
+  Serial.println("  Sensor A (chest 0x2A) | Sensor B (lean 0x29)");
+  Serial.println("  -----------------------------------------------");
+  Serial.flush();
 }
 
 void loop() {
-  uint8_t ready_a = 0, ready_b = 0;
-  vl53l5cx_check_data_ready(&sensor_a, &ready_a);
-  vl53l5cx_check_data_ready(&sensor_b, &ready_b);
+  bool gotA = sensor_a.isDataReady();
+  bool gotB = sensor_b.isDataReady();
 
-  if (ready_a) {
-    vl53l5cx_get_ranging_data(&sensor_a, &results_a);
-    int16_t mm  = results_a.distance_mm[CENTER_ZONE];
-    uint8_t st  = results_a.target_status[CENTER_ZONE];
-    Serial.print("  A (chest, 0x2A): ");
+  if (gotA) {
+    sensor_a.getRangingData(&results_a);
+    int16_t mm = results_a.distance_mm[CENTER_ZONE];
+    uint8_t st = results_a.target_status[CENTER_ZONE];
+    Serial.print("  A (chest 0x2A): ");
     Serial.print(mm);
     Serial.print(" mm  [");
     Serial.print(st == VALID_STATUS ? "OK" : "invalid");
-    Serial.println("]");
+    Serial.print("]");
   }
 
-  if (ready_b) {
-    vl53l5cx_get_ranging_data(&sensor_b, &results_b);
-    int16_t mm  = results_b.distance_mm[CENTER_ZONE];
-    uint8_t st  = results_b.target_status[CENTER_ZONE];
-    Serial.print("  B (lean,  0x29): ");
+  if (gotB) {
+    sensor_b.getRangingData(&results_b);
+    int16_t mm = results_b.distance_mm[CENTER_ZONE];
+    uint8_t st = results_b.target_status[CENTER_ZONE];
+    if (gotA) Serial.print("   ");
+    Serial.print("  B (lean  0x29): ");
     Serial.print(mm);
     Serial.print(" mm  [");
     Serial.print(st == VALID_STATUS ? "OK" : "invalid");
-    Serial.println("]");
+    Serial.print("]");
+  }
+
+  if (gotA || gotB) {
+    Serial.println();
+    Serial.flush();
   }
 
   delay(50);
