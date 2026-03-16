@@ -186,7 +186,10 @@ void setup() {
 
   Serial.print("  Booting B... "); Serial.flush();
   digitalWrite(LPN_B_PIN, HIGH); delay(100);
-  if (!sensor_b.begin(0x29, Wire)) {
+  Wire.setTimeout(100);   // fail fast if B doesn't respond (prevents indefinite hang)
+  bool bOk = sensor_b.begin(0x29, Wire);
+  Wire.setTimeout(0);     // disable timeout for normal ranging
+  if (!bOk) {
     Serial.println("FAILED — continuing with A only");
   } else {
     Serial.println("OK (0x29)");
