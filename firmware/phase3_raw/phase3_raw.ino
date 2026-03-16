@@ -112,7 +112,7 @@ SensorReading computeReading(VL53L5CX_ResultsData& data) {
 void recoverWire() {
   delay(5); Wire.end(); delay(5);
   Wire.setSDA(SDA_PIN); Wire.setSCL(SCL_PIN);
-  Wire.begin(); Wire.setClock(400000);
+    Wire.begin(); Wire.setClock(100000);
 }
 
 // ── Watchdog (same logic as phase3_position) ──────────────────────────────────
@@ -170,7 +170,7 @@ void setup() {
   Wire.setSDA(SDA_PIN);
   Wire.setSCL(SCL_PIN);
   Wire.begin();
-  Wire.setClock(400000);
+  Wire.setClock(100000);   // 100kHz — safe with dual-board pull-ups (~2.35kΩ combined)
 
   digitalWrite(LPN_A_PIN, LOW);
   digitalWrite(LPN_B_PIN, LOW);
