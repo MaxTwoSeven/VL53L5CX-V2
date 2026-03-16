@@ -42,6 +42,13 @@
 #include <Wire.h>
 #include <SparkFun_VL53L5CX_Library.h>
 
+// Struct must be declared before any function definitions so the Arduino IDE's
+// auto-generated forward declarations can reference the type correctly.
+struct SensorReading {
+  float dist_mm;
+  int   valid_count;
+};
+
 #define LPN_A_PIN    2
 #define LPN_B_PIN    3
 #define SDA_PIN      4
@@ -85,11 +92,6 @@ int mapClamp(float x, float inA, float inB, int outA, int outB) {
 }
 
 // ── Position calculation ───────────────────────────────────────────────────────
-struct SensorReading {
-  float dist_mm;
-  int   valid_count;
-};
-
 SensorReading computeReading(VL53L5CX_ResultsData& data) {
   SensorReading r = {-1.0f, 0};
   float dSum = 0, dW = 0;
