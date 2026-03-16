@@ -68,9 +68,7 @@ void setup() {
   digitalWrite(LPN_A_PIN, HIGH);
   delay(100);
 
-  Wire.setTimeout(200);
   bool ok = sensor_a.begin(0x29, Wire);
-  Wire.setTimeout(0);
 
   if (!ok) {
     Serial.println("FAILED — check wiring on A (LPN_A=GP2, SDA=GP4, SCL=GP5)");

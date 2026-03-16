@@ -74,9 +74,7 @@ void setup() {
   digitalWrite(LPN_B_PIN, HIGH);
   delay(100);
 
-  Wire.setTimeout(200);
   bool ok = sensor_b.begin(0x29, Wire);
-  Wire.setTimeout(0);
 
   if (!ok) {
     Serial.println("FAILED");
