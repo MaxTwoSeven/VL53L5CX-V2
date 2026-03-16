@@ -55,7 +55,7 @@
  */
 
 // ── Mode ──────────────────────────────────────────────────────────────────────
-#define USE_8X8   // uncomment for 8x8 @ 15 Hz
+//#define USE_8X8   // uncomment for 8x8 @ 15 Hz
 
 // ── Derived grid constants ────────────────────────────────────────────────────
 #ifdef USE_8X8
@@ -425,7 +425,8 @@ void redraw(RiderPos& pos, SensorReading& ra, SensorReading& rb) {
 
   // Erase any leftover content below (handles terminal resize)
   Serial.print("\033[J");
-  Serial.flush();
+  // No flush here — flush blocks until the terminal drains the buffer.
+  // If screen is hung, this would freeze the sensor loop.
 }
 
 // ── Setup ─────────────────────────────────────────────────────────────────────
@@ -490,11 +491,25 @@ void setup() {
 static bool     bIsolated = false;
 static uint32_t bRetryAt  = 0;
 
+// Re-initialise Wire after any LPN_B hardware reset.
+// Pulling LPN LOW while B is mid-transaction can leave SDA stuck low;
+// Wire.end() + Wire.begin() resets the RP2040's I2C hardware to clear it.
+void recoverWire() {
+  delay(5);
+  Wire.end();
+  delay(5);
+  Wire.setSDA(SDA_PIN);
+  Wire.setSCL(SCL_PIN);
+  Wire.begin();
+  Wire.setClock(400000);
+}
+
 void watchdogB() {
-  if (!bIsolated && (millis() > 5000) && (millis() - lastReadB_ms > 3000)) {
+  if (!bIsolated && (millis() > 5000) && (millis() - lastReadB_ms > 5000)) {
     digitalWrite(LPN_B_PIN, LOW);
     bIsolated = true;
     bRetryAt  = millis() + 30000;
+    recoverWire();   // clear any stuck-bus state before Sensor A resumes
   }
   if (bIsolated && millis() >= bRetryAt) {
     digitalWrite(LPN_B_PIN, HIGH); delay(100);
@@ -506,6 +521,7 @@ void watchdogB() {
       bIsolated = false;
     } else {
       digitalWrite(LPN_B_PIN, LOW);
+      recoverWire();
       bRetryAt = millis() + 30000;
     }
   }
@@ -518,11 +534,14 @@ static SensorReading rb_last = {-1.0f, 0.0f, 0};
 static RiderPos      pos_last = {0.0f, 0.0f, 128, 128, false};
 
 void loop() {
-  // Guaranteed full redraw every 5 s (catches late-connecting terminals)
+  // Guaranteed full redraw every 5 s (catches late-connecting terminals).
+  // Skip if serial buffer is full — terminal is not consuming data.
   if (millis() - lastFullClear_ms >= 5000) {
-    Serial.print(A_CLEAR);
     lastFullClear_ms = millis();
-    redraw(pos_last, ra_last, rb_last);
+    if (Serial.availableForWrite() > 0) {
+      Serial.print(A_CLEAR);
+      redraw(pos_last, ra_last, rb_last);
+    }
   }
 
   delay(8);
@@ -549,7 +568,7 @@ void loop() {
 
   watchdogB();
 
-  if (updated) {
+  if (updated && Serial.availableForWrite() > 0) {
     ra_last  = computeReading(results_a);
     rb_last  = computeReading(results_b);
     pos_last = computePosition(ra_last, rb_last);

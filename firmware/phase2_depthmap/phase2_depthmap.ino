@@ -220,7 +220,7 @@ void redraw() {
 
   // Erase any leftover lines below this frame (handles mode switches / resize)
   Serial.print("\033[J");
-  Serial.flush();
+  // No flush — flush blocks until the terminal drains the buffer.
 }
 
 // ── Setup ─────────────────────────────────────────────────────────────────────
@@ -302,11 +302,13 @@ void setup() {
 static uint32_t lastFullClear_ms = 0;
 
 void loop() {
-  // ── Force-redraw first — guaranteed output every 5 s regardless ──────────
+  // ── Force-redraw — guaranteed output every 5 s; skip if buffer is full ───
   if (millis() - lastFullClear_ms >= 5000) {
-    Serial.print(A_CLEAR);
     lastFullClear_ms = millis();
-    redraw();             // draw current (possibly stale) data immediately
+    if (Serial.availableForWrite() > 0) {
+      Serial.print(A_CLEAR);
+      redraw();
+    }
   }
 
   delay(8);
@@ -335,23 +337,27 @@ void loop() {
   }
 
   // ── Sensor B bus-isolation watchdog ──────────────────────────────────────
-  // If Sensor B has been stale for >3 s it is likely holding the I2C bus.
-  // Pull LPN_B LOW to remove it from the bus entirely so Sensor A can run.
-  // Every 30 s attempt a full re-initialisation.
-  static bool   bIsolated   = false;
+  static bool     bIsolated = false;
   static uint32_t bRetryAt  = 0;
 
-  if (!bIsolated && (millis() > 5000) && (millis() - lastReadB_ms > 3000)) {
-    // First stale threshold: isolate Sensor B
+  auto recoverWire = []() {
+    delay(5);
+    Wire.end();
+    delay(5);
+    Wire.setSDA(SDA_PIN);
+    Wire.setSCL(SCL_PIN);
+    Wire.begin();
+    Wire.setClock(400000);
+  };
+
+  if (!bIsolated && (millis() > 5000) && (millis() - lastReadB_ms > 5000)) {
     digitalWrite(LPN_B_PIN, LOW);
-    bIsolated  = true;
-    bRetryAt   = millis() + 30000;   // try again in 30 s
-    Serial.print(A_BOLD "\r\n  [Sensor B isolated — holding I2C bus]" A_RESET EOLN);
-    Serial.flush();
+    bIsolated = true;
+    bRetryAt  = millis() + 30000;
+    recoverWire();   // clear any stuck-bus state before Sensor A resumes
   }
 
   if (bIsolated && millis() >= bRetryAt) {
-    // Attempt recovery: wake Sensor B and re-initialise
     digitalWrite(LPN_B_PIN, HIGH);
     delay(100);
     if (sensor_b.begin(0x29, Wire)) {
@@ -359,17 +365,14 @@ void loop() {
       sensor_b.setRangingFrequency(RANGING_HZ);
       sensor_b.startRanging();
       lastReadB_ms = millis();
-      bIsolated  = false;
-      bRetryAt   = 0;
-      Serial.print(A_BOLD "\r\n  [Sensor B recovered]" A_RESET EOLN);
+      bIsolated = false;
+      bRetryAt  = 0;
     } else {
-      // Still broken — isolate again, retry in another 30 s
       digitalWrite(LPN_B_PIN, LOW);
+      recoverWire();
       bRetryAt = millis() + 30000;
-      Serial.print(A_BOLD "\r\n  [Sensor B recovery failed — retrying in 30 s]" A_RESET EOLN);
     }
-    Serial.flush();
   }
 
-  if (updated) redraw();
+  if (updated && Serial.availableForWrite() > 0) redraw();
 }
