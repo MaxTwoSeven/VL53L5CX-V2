@@ -110,12 +110,59 @@ SensorReading computeReading(VL53L5CX_ResultsData& data) {
 
 // ── Wire recovery helper ───────────────────────────────────────────────────────
 void recoverWire() {
+  Wire.setTimeout(0);      // disable timeout during reset sequence
   delay(5); Wire.end(); delay(5);
   Wire.setSDA(SDA_PIN); Wire.setSCL(SCL_PIN);
-    Wire.begin(); Wire.setClock(100000);
+  Wire.begin(); Wire.setClock(100000);
+  Wire.setTimeout(100);    // restore 100ms timeout for ranging
 }
 
-// ── Watchdog (same logic as phase3_position) ──────────────────────────────────
+// ── Full hang watchdog ────────────────────────────────────────────────────────
+// If NO frame at all arrives from either sensor for 3 seconds, the I2C bus is
+// likely stuck (loose wire mid-transaction). Reset Wire hardware and re-init
+// both sensors from scratch.
+static uint32_t lastAnyFrame_ms = 0;
+
+void watchdogHang() {
+  if (millis() - lastAnyFrame_ms < 3000) return;
+  if (millis() < 8000) return;   // skip during boot grace period
+
+  Serial.println("  [hang watchdog] No frames for 3s — full bus + sensor recovery");
+  recoverWire();
+  delay(50);
+
+  // Re-init both sensors
+  digitalWrite(LPN_A_PIN, LOW);
+  digitalWrite(LPN_B_PIN, LOW);
+  delay(10);
+
+  digitalWrite(LPN_A_PIN, HIGH); delay(100);
+  if (sensor_a.begin(0x29, Wire)) {
+    sensor_a.setAddress(0x2A);
+    sensor_a.setResolution(GRID_SIZE * GRID_SIZE);
+    sensor_a.setRangingFrequency(RANGING_HZ);
+    sensor_a.startRanging();
+    Serial.println("  [hang watchdog] Sensor A re-init OK");
+  } else {
+    Serial.println("  [hang watchdog] Sensor A re-init FAILED");
+  }
+
+  digitalWrite(LPN_B_PIN, HIGH); delay(100);
+  if (sensor_b.begin(0x29, Wire)) {
+    sensor_b.setResolution(GRID_SIZE * GRID_SIZE);
+    sensor_b.setRangingFrequency(RANGING_HZ);
+    sensor_b.startRanging();
+    Serial.println("  [hang watchdog] Sensor B re-init OK");
+  } else {
+    Serial.println("  [hang watchdog] Sensor B re-init FAILED");
+  }
+
+  lastAnyFrame_ms = millis();
+  lastReadA_ms    = millis();
+  lastReadB_ms    = millis();
+}
+
+// ── Sensor B stale watchdog ───────────────────────────────────────────────────
 static bool     bIsolated = false;
 static uint32_t bRetryAt  = 0;
 
@@ -202,8 +249,15 @@ void setup() {
   sensor_a.startRanging();
   sensor_b.startRanging();
 
-  lastReadA_ms = millis();
-  lastReadB_ms = millis();
+  // Set I2C timeout AFTER begin() — firmware upload inside begin() takes
+  // several seconds and must not be interrupted. 100ms per transaction is
+  // safe for ranging at 100kHz (~3ms per 32-byte read). If a wire loses
+  // contact mid-transaction, Wire returns an error instead of hanging forever.
+  Wire.setTimeout(100);
+
+  lastReadA_ms    = millis();
+  lastReadB_ms    = millis();
+  lastAnyFrame_ms = millis();
 
   digitalWrite(LED_BUILTIN, HIGH);
 
@@ -224,17 +278,20 @@ void loop() {
 
   if (readyA) {
     sensor_a.getRangingData(&results_a);
-    lastReadA_ms = millis();
+    lastReadA_ms    = millis();
+    lastAnyFrame_ms = millis();
     frameCount++;
     updatedA = true;
   }
   if (readyB) {
     if (updatedA) delay(2);
     sensor_b.getRangingData(&results_b);
-    lastReadB_ms = millis();
+    lastReadB_ms    = millis();
+    lastAnyFrame_ms = millis();
     updatedB = true;
   }
 
+  watchdogHang();
   watchdogB();
 
   // Print one line whenever A has new data (B may or may not be fresh)
