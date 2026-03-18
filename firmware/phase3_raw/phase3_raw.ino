@@ -289,15 +289,15 @@ void loop() {
     Serial.println(line);
 
     // ── Serial Plotter output ──────────────────────────────────────────────
-    // Labeled values lock the legend in the plotter.
-    // All channels are 0–255 so the Y-axis stays fixed and readable.
-    // MIN:0 and MAX:255 are constant anchors that prevent auto-scaling.
-    // Switch to Serial Plotter (Tools menu) to see the live graph.
-    Serial.print("MIN:0 MAX:255 ");
-    Serial.print("Depth:"); Serial.print(joyY); Serial.print(" ");
-    Serial.print("Lean:");  Serial.print(joyX); Serial.print(" ");
-    Serial.print("DistA:"); Serial.print(haveA ? mapClamp(ra.dist_mm, MIN_DEPTH_MM, MAX_DEPTH_MM, 0, 255) : 128); Serial.print(" ");
-    Serial.print("DistB:"); Serial.println(haveB ? mapClamp(rb.dist_mm, MIN_DEPTH_MM, MAX_DEPTH_MM, 0, 255) : 128);
-    // No flush — let USB CDC drain naturally
+    // Guard with availableForWrite() so toggling a trace in the plotter
+    // (which briefly stalls the IDE's serial reader) never blocks the loop.
+    if (Serial.availableForWrite() > 64) {
+      char plot[80];
+      snprintf(plot, sizeof(plot), "MIN:0 MAX:255 Depth:%d Lean:%d DistA:%d DistB:%d",
+               joyY, joyX,
+               haveA ? mapClamp(ra.dist_mm, MIN_DEPTH_MM, MAX_DEPTH_MM, 0, 255) : 128,
+               haveB ? mapClamp(rb.dist_mm, MIN_DEPTH_MM, MAX_DEPTH_MM, 0, 255) : 128);
+      Serial.println(plot);
+    }
   }
 }
