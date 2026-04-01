@@ -12,6 +12,9 @@
  * Open Arduino Serial Monitor at 115200 baud.
  * Expected output every ~16 ms:
  *   #1  dist:412mm  zones:9/16  status:OK
+ *
+ * Uses 100kHz I2C (same as phase3_raw). 400kHz + marginal pull-ups can leave
+ * INT / isDataReady() never true — solid LED but no lines (that was not "dead").
  */
 
 #include <Wire.h>
@@ -41,8 +44,16 @@ void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
   blink(3, 100, 100);
 
+  pinMode(LPN_A_PIN, OUTPUT);
+  pinMode(LPN_B_PIN, OUTPUT);
+  digitalWrite(LPN_A_PIN, LOW);
+  digitalWrite(LPN_B_PIN, LOW);
+
   Serial.begin(115200);
   delay(3000);
+
+  Serial.println("  (serial OK)");
+  Serial.flush();
 
   Serial.println("========================================");
   Serial.println("  Sensor A Isolation Test  (4x4 @ 60Hz)");
@@ -51,18 +62,15 @@ void setup() {
   Serial.flush();
 
   pinMode(INT_A_PIN, INPUT_PULLUP);
-  pinMode(LPN_A_PIN, OUTPUT);
-  pinMode(LPN_B_PIN, OUTPUT);
 
   // B stays LOW the entire time
-  digitalWrite(LPN_A_PIN, LOW);
-  digitalWrite(LPN_B_PIN, LOW);
   delay(10);
 
   Wire.setSDA(SDA_PIN);
   Wire.setSCL(SCL_PIN);
   Wire.begin();
-  Wire.setClock(400000);
+  Wire.setClock(100000);
+  Wire.setTimeout(100);
 
   Serial.print("  Booting Sensor A... "); Serial.flush();
   digitalWrite(LPN_A_PIN, HIGH);
@@ -92,8 +100,17 @@ void setup() {
 }
 
 void loop() {
+  static uint32_t lastWaitMsg = 0;
   bool ready = (digitalRead(INT_A_PIN) == LOW) || sensor_a.isDataReady();
-  if (!ready) { delay(5); return; }
+  if (!ready) {
+    if (frameCount == 0 && millis() - lastWaitMsg > 2000) {
+      lastWaitMsg = millis();
+      Serial.println("  ... waiting for first frame (INT GP6 low OR isDataReady). 100kHz I2C.");
+      Serial.flush();
+    }
+    delay(5);
+    return;
+  }
 
   sensor_a.getRangingData(&results_a);
   frameCount++;
