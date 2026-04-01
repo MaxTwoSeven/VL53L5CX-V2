@@ -137,6 +137,8 @@ static uint32_t lastAnyFrame_ms     = 0;
 static uint32_t lastHangRecovery_ms = 0;
 
 static bool reinitSensorsFromColdBoot() {
+  Wire.setTimeout(8000);   // begin() may do long firmware transfers; avoid infinite stall
+
   digitalWrite(LPN_A_PIN, LOW);
   digitalWrite(LPN_B_PIN, LOW);
   delay(30);
@@ -149,7 +151,10 @@ static bool reinitSensorsFromColdBoot() {
     if (attempt) delay(150);
     okA = sensor_a.begin(0x29, Wire);
   }
-  if (!okA) return false;
+  if (!okA) {
+    Wire.setTimeout(100);
+    return false;
+  }
 
   sensor_a.setAddress(0x2A);
   sensor_a.setResolution(GRID_SIZE * GRID_SIZE);
@@ -164,7 +169,10 @@ static bool reinitSensorsFromColdBoot() {
     if (attempt) delay(150);
     okB = sensor_b.begin(0x29, Wire);
   }
-  if (!okB) return false;
+  if (!okB) {
+    Wire.setTimeout(100);
+    return false;
+  }
 
   sensor_b.setResolution(GRID_SIZE * GRID_SIZE);
   sensor_b.setRangingFrequency(RANGING_HZ);
@@ -211,7 +219,8 @@ void watchdogB() {
     bRetryAt          = millis() + 5000;
     recoverWire();
     digitalWrite(LPN_B_PIN, HIGH);
-    delay(100);
+    delay(200);
+    Wire.setTimeout(8000);
     if (sensor_b.begin(0x29, Wire)) {
       sensor_b.setResolution(GRID_SIZE * GRID_SIZE);
       sensor_b.setRangingFrequency(RANGING_HZ);
@@ -221,6 +230,7 @@ void watchdogB() {
       bBWatchdogLatched = false;
       Serial.println("  [watchdog] Sensor B OK.");
     } else {
+      Wire.setTimeout(100);
       Serial.println("  [watchdog] Sensor B re-init failed — retry in 5s");
       bRetryAt = millis() + 5000;
     }
@@ -229,7 +239,8 @@ void watchdogB() {
     Serial.println("  [watchdog] Retry Sensor B...");
     recoverWire();
     digitalWrite(LPN_B_PIN, HIGH);
-    delay(100);
+    delay(200);
+    Wire.setTimeout(8000);
     if (sensor_b.begin(0x29, Wire)) {
       sensor_b.setResolution(GRID_SIZE * GRID_SIZE);
       sensor_b.setRangingFrequency(RANGING_HZ);
@@ -239,6 +250,7 @@ void watchdogB() {
       bBWatchdogLatched = false;
       Serial.println("  [watchdog] Sensor B OK.");
     } else {
+      Wire.setTimeout(100);
       bRetryAt = millis() + 5000;
     }
   }
@@ -276,20 +288,26 @@ void setup() {
   Wire.begin();
   Wire.setClock(100000);   // 100kHz — safe with dual-board pull-ups (~2.35kΩ combined)
 
+  // Long timeout ONLY for begin() — each I2C op must complete, but if SDA is stuck
+  // we must not hang forever (was: no timeout until after startRanging → B begin blocked).
+  // 8s is enough per transaction for firmware upload; then we drop to 100ms for the loop.
+  Wire.setTimeout(8000);
+
   digitalWrite(LPN_A_PIN, LOW);
   digitalWrite(LPN_B_PIN, LOW);
   delay(10);
 
   Serial.print("  Booting A... "); Serial.flush();
-  digitalWrite(LPN_A_PIN, HIGH); delay(100);
+  digitalWrite(LPN_A_PIN, HIGH); delay(200);
   if (!sensor_a.begin(0x29, Wire)) panicFast("ERROR: Sensor A not found.");
   sensor_a.setAddress(0x2A);
   Serial.println("OK (0x2A)");
   blink(1, 400, 100);
   delay(50);
 
-  Serial.print("  Booting B... "); Serial.flush();
-  digitalWrite(LPN_B_PIN, HIGH); delay(100);
+  Serial.print("  Booting B... (up to ~8s if bus stuck) "); Serial.flush();
+  digitalWrite(LPN_B_PIN, HIGH);
+  delay(200);
   bool bOk = sensor_b.begin(0x29, Wire);
   if (!bOk) {
     Serial.println("FAILED — continuing with A only");
@@ -300,16 +318,16 @@ void setup() {
   delay(50);
 
   sensor_a.setResolution(GRID_SIZE * GRID_SIZE);
-  sensor_b.setResolution(GRID_SIZE * GRID_SIZE);
   sensor_a.setRangingFrequency(RANGING_HZ);
-  sensor_b.setRangingFrequency(RANGING_HZ);
   sensor_a.startRanging();
-  sensor_b.startRanging();
 
-  // Set I2C timeout AFTER begin() — firmware upload inside begin() takes
-  // several seconds and must not be interrupted. 100ms per transaction is
-  // safe for ranging at 100kHz (~3ms per 32-byte read). If a wire loses
-  // contact mid-transaction, Wire returns an error instead of hanging forever.
+  if (bOk) {
+    sensor_b.setResolution(GRID_SIZE * GRID_SIZE);
+    sensor_b.setRangingFrequency(RANGING_HZ);
+    sensor_b.startRanging();
+  }
+
+  // Tight timeout for runtime (begin() used 8000 ms above so a stuck bus could not hang forever).
   Wire.setTimeout(100);
 
   lastReadA_ms    = millis();
