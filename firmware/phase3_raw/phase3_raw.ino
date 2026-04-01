@@ -15,6 +15,13 @@
  *   GP2 → LPn A    GP3 → LPn B
  *   GP4 → SDA      GP5 → SCL
  *   GP6 → INT A    GP7 → INT B
+ *
+ * If you removed the 8-pin 472 array from one sensor board, that package
+ * often pulled up LPN and INT as well as SDA/SCL. SDA/SCL are still pulled
+ * by the other board. LPN may need a 10kΩ resistor from the sensor's LPN
+ * pad to 3.3V so the line cannot float low (shutdown) when the Pico pin is
+ * not yet driven — or rely on firmware driving LPN as OUTPUT from the
+ * first line of setup() (see below).
  */
 
 // ── Grid mode ─────────────────────────────────────────────────────────────────
@@ -163,32 +170,48 @@ void watchdogHang() {
 }
 
 // ── Sensor B stale watchdog ───────────────────────────────────────────────────
-static bool     bIsolated = false;
-static uint32_t bRetryAt  = 0;
+static bool     bBWatchdogLatched = false;
+static uint32_t bRetryAt          = 0;
 
 void watchdogB() {
-  if (!bIsolated && (millis() > 5000) && (millis() - lastReadB_ms > 5000)) {
-    Serial.println("  [watchdog] Sensor B stale >5s — isolating + recovering bus");
-    digitalWrite(LPN_B_PIN, LOW);
-    bIsolated = true;
-    bRetryAt  = millis() + 30000;
+  // Soft recovery only — do NOT pull LPN_B LOW to "isolate". That was
+  // shutting down the VL53L5CX; after removing the on-board LPN pull-up with
+  // the resistor array, LPN can stay low and recovery then fails forever.
+  if (!bBWatchdogLatched && (millis() > 8000) && (millis() - lastReadB_ms > 8000)) {
+    Serial.println("  [watchdog] Sensor B stale >8s — bus reset + B re-init (no LPN shutdown)");
+    bBWatchdogLatched = true;
+    bRetryAt          = millis() + 5000;
     recoverWire();
-  }
-  if (bIsolated && millis() >= bRetryAt) {
-    Serial.println("  [watchdog] Attempting Sensor B recovery...");
-    digitalWrite(LPN_B_PIN, HIGH); delay(100);
+    digitalWrite(LPN_B_PIN, HIGH);
+    delay(100);
     if (sensor_b.begin(0x29, Wire)) {
       sensor_b.setResolution(GRID_SIZE * GRID_SIZE);
       sensor_b.setRangingFrequency(RANGING_HZ);
       sensor_b.startRanging();
+      Wire.setTimeout(100);
       lastReadB_ms = millis();
-      bIsolated = false;
-      Serial.println("  [watchdog] Sensor B recovered.");
+      bBWatchdogLatched = false;
+      Serial.println("  [watchdog] Sensor B OK.");
     } else {
-      Serial.println("  [watchdog] Sensor B recovery failed — retry in 30s");
-      digitalWrite(LPN_B_PIN, LOW);
-      recoverWire();
-      bRetryAt = millis() + 30000;
+      Serial.println("  [watchdog] Sensor B re-init failed — retry in 5s");
+      bRetryAt = millis() + 5000;
+    }
+  }
+  if (bBWatchdogLatched && millis() >= bRetryAt) {
+    Serial.println("  [watchdog] Retry Sensor B...");
+    recoverWire();
+    digitalWrite(LPN_B_PIN, HIGH);
+    delay(100);
+    if (sensor_b.begin(0x29, Wire)) {
+      sensor_b.setResolution(GRID_SIZE * GRID_SIZE);
+      sensor_b.setRangingFrequency(RANGING_HZ);
+      sensor_b.startRanging();
+      Wire.setTimeout(100);
+      lastReadB_ms = millis();
+      bBWatchdogLatched = false;
+      Serial.println("  [watchdog] Sensor B OK.");
+    } else {
+      bRetryAt = millis() + 5000;
     }
   }
 }
@@ -197,6 +220,13 @@ void watchdogB() {
 void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
   blink(3, 100, 100);
+
+  // Hold LPN lines before any long delay — if the board lost its LPN pull-up
+  // when the resistor array was removed, LPN must not float low (shutdown).
+  pinMode(LPN_A_PIN, OUTPUT);
+  pinMode(LPN_B_PIN, OUTPUT);
+  digitalWrite(LPN_A_PIN, LOW);
+  digitalWrite(LPN_B_PIN, LOW);
 
   Serial.begin(115200);
   delay(3000);
@@ -211,8 +241,7 @@ void setup() {
 
   pinMode(INT_A_PIN, INPUT_PULLUP);
   pinMode(INT_B_PIN, INPUT_PULLUP);
-  pinMode(LPN_A_PIN, OUTPUT);
-  pinMode(LPN_B_PIN, OUTPUT);
+  // LPN pins already OUTPUT from boot (see top of setup)
 
   Wire.setSDA(SDA_PIN);
   Wire.setSCL(SCL_PIN);
@@ -289,6 +318,7 @@ void loop() {
     lastReadB_ms    = millis();
     lastAnyFrame_ms = millis();
     updatedB = true;
+    bBWatchdogLatched = false;   // B is live again — cancel stale-recovery state
   }
 
   watchdogHang();
