@@ -45,6 +45,9 @@
 #define MAX_LEAN_MM    200
 #define COS45         0.7071f
 
+// If B suddenly shows "--" and 0z after an object was very close (~<80mm slant),
+// many zones can be non-VALID (ST uses range status != 5) — not necessarily a bus fault.
+
 // ── Hardware ──────────────────────────────────────────────────────────────────
 #include <Wire.h>
 #include <SparkFun_VL53L5CX_Library.h>
@@ -125,48 +128,73 @@ void recoverWire() {
 }
 
 // ── Full hang watchdog ────────────────────────────────────────────────────────
-// If NO frame at all arrives from either sensor for 3 seconds, the I2C bus is
-// likely stuck (loose wire mid-transaction). Reset Wire hardware and re-init
-// both sensors from scratch.
-static uint32_t lastAnyFrame_ms = 0;
+// If NO frame at all arrives from either sensor for several seconds, the I2C
+// bus may be stuck (loose wire) or both sensors wedged. Reset Wire and re-init.
+//
+// Important: do NOT bump lastAnyFrame_ms unless re-init actually succeeds — otherwise
+// we mask a dead bus for another full interval (you saw "A re-init FAILED" with no retry).
+static uint32_t lastAnyFrame_ms     = 0;
+static uint32_t lastHangRecovery_ms = 0;
 
-void watchdogHang() {
-  if (millis() - lastAnyFrame_ms < 3000) return;
-  if (millis() < 8000) return;   // skip during boot grace period
-
-  Serial.println("  [hang watchdog] No frames for 3s — full bus + sensor recovery");
-  recoverWire();
-  delay(50);
-
-  // Re-init both sensors
+static bool reinitSensorsFromColdBoot() {
   digitalWrite(LPN_A_PIN, LOW);
   digitalWrite(LPN_B_PIN, LOW);
-  delay(10);
+  delay(30);
 
-  digitalWrite(LPN_A_PIN, HIGH); delay(100);
-  if (sensor_a.begin(0x29, Wire)) {
-    sensor_a.setAddress(0x2A);
-    sensor_a.setResolution(GRID_SIZE * GRID_SIZE);
-    sensor_a.setRangingFrequency(RANGING_HZ);
-    sensor_a.startRanging();
-    Serial.println("  [hang watchdog] Sensor A re-init OK");
-  } else {
-    Serial.println("  [hang watchdog] Sensor A re-init FAILED");
+  digitalWrite(LPN_A_PIN, HIGH);
+  delay(200);   // VL53L5CX needs time to exit shutdown before I2C
+
+  bool okA = false;
+  for (int attempt = 0; attempt < 3 && !okA; attempt++) {
+    if (attempt) delay(150);
+    okA = sensor_a.begin(0x29, Wire);
   }
+  if (!okA) return false;
 
-  digitalWrite(LPN_B_PIN, HIGH); delay(100);
-  if (sensor_b.begin(0x29, Wire)) {
-    sensor_b.setResolution(GRID_SIZE * GRID_SIZE);
-    sensor_b.setRangingFrequency(RANGING_HZ);
-    sensor_b.startRanging();
-    Serial.println("  [hang watchdog] Sensor B re-init OK");
-  } else {
-    Serial.println("  [hang watchdog] Sensor B re-init FAILED");
+  sensor_a.setAddress(0x2A);
+  sensor_a.setResolution(GRID_SIZE * GRID_SIZE);
+  sensor_a.setRangingFrequency(RANGING_HZ);
+  sensor_a.startRanging();
+
+  digitalWrite(LPN_B_PIN, HIGH);
+  delay(200);
+
+  bool okB = false;
+  for (int attempt = 0; attempt < 3 && !okB; attempt++) {
+    if (attempt) delay(150);
+    okB = sensor_b.begin(0x29, Wire);
   }
+  if (!okB) return false;
 
-  lastAnyFrame_ms = millis();
-  lastReadA_ms    = millis();
-  lastReadB_ms    = millis();
+  sensor_b.setResolution(GRID_SIZE * GRID_SIZE);
+  sensor_b.setRangingFrequency(RANGING_HZ);
+  sensor_b.startRanging();
+  Wire.setTimeout(100);
+  return true;
+}
+
+void watchdogHang() {
+  if (millis() - lastAnyFrame_ms < 5000) return;   // was 3s — fewer false triggers
+  if (millis() < 8000) return;
+
+  // Cooldown so we don't hammer I2C if recovery keeps failing
+  if (millis() - lastHangRecovery_ms < 4000) return;
+
+  Serial.println("  [hang watchdog] No frames for 5s — full bus + sensor recovery");
+  lastHangRecovery_ms = millis();
+
+  recoverWire();
+  delay(80);
+
+  if (reinitSensorsFromColdBoot()) {
+    Serial.println("  [hang watchdog] Sensors re-init OK");
+    lastAnyFrame_ms = millis();
+    lastReadA_ms    = millis();
+    lastReadB_ms    = millis();
+  } else {
+    Serial.println("  [hang watchdog] Re-init FAILED — unplug USB 5s & replug, check SDA/SCL");
+    // Do not touch lastAnyFrame_ms — watchdog will retry after interval + cooldown
+  }
 }
 
 // ── Sensor B stale watchdog ───────────────────────────────────────────────────
