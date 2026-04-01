@@ -48,6 +48,10 @@
 // If B suddenly shows "--" and 0z after an object was very close (~<80mm slant),
 // many zones can be non-VALID (ST uses range status != 5) — not necessarily a bus fault.
 
+// Uncomment to skip Sensor B init entirely (A-only). Use if sensor_b.begin()
+// hangs forever — some builds ignore Wire.setTimeout() inside the SparkFun lib.
+// #define SKIP_SENSOR_B
+
 // ── Hardware ──────────────────────────────────────────────────────────────────
 #include <Wire.h>
 #include <SparkFun_VL53L5CX_Library.h>
@@ -271,6 +275,10 @@ void setup() {
   Serial.begin(115200);
   delay(3000);
 
+  Serial.println();
+  Serial.println("  (serial up — if you see this, USB OK)");
+  Serial.flush();
+
   Serial.println("========================================");
   Serial.println("  Phase 3 Raw Validator");
   Serial.print  ("  Mode: "); Serial.print(GRID_SIZE); Serial.print("x");
@@ -305,16 +313,32 @@ void setup() {
   blink(1, 400, 100);
   delay(50);
 
-  Serial.print("  Booting B... (up to ~8s if bus stuck) "); Serial.flush();
+  Serial.println("  Booting B...");
+  Serial.println("  (LED solid ON = inside B.begin() — if it never turns OFF, B init is hung)");
+  Serial.flush();
+
   digitalWrite(LPN_B_PIN, HIGH);
   delay(200);
-  bool bOk = sensor_b.begin(0x29, Wire);
+
+  bool bOk = false;
+#ifdef SKIP_SENSOR_B
+  Serial.println("  SKIP_SENSOR_B defined — B not initialized (A only).");
+  Serial.flush();
+#else
+  digitalWrite(LED_BUILTIN, HIGH);   // solid ON during entire B.begin() — hang diagnosis
+  Serial.println("  >> calling sensor_b.begin() ...");
+  Serial.flush();
+  bOk = sensor_b.begin(0x29, Wire);
+  digitalWrite(LED_BUILTIN, LOW);
+
   if (!bOk) {
-    Serial.println("FAILED — continuing with A only");
+    Serial.println("  B: FAILED — continuing with A only");
   } else {
-    Serial.println("OK (0x29)");
+    Serial.println("  B: OK (0x29)");
     blink(1, 400, 100);
   }
+  Serial.flush();
+#endif
   delay(50);
 
   sensor_a.setResolution(GRID_SIZE * GRID_SIZE);
